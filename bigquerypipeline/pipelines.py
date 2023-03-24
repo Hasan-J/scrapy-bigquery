@@ -18,8 +18,11 @@ class BigQueryPipeline:
 
     bigquery_dataset_key = "BIGQUERY_DATASET"
     bigquery_table_key = "BIGQUERY_TABLE"
+    schema_generator_kwargs = {
+        "SCHEMA_GENERATOR_KEEP_NULLS": {"name": "keep_nulls", "value": False}
+    }
 
-    def __init__(self, service_account_info: typing.Dict, dataset_id: str):
+    def __init__(self, service_account_info: typing.Dict, dataset_id: str, **schema_generator_kwargs):
         credentials = service_account.Credentials.from_service_account_info(
             service_account_info
         )
@@ -32,7 +35,7 @@ class BigQueryPipeline:
             # It already exists
             self.client.create_dataset(dataset_id, timeout=30, exists_ok=True)
         self.tables_created: typing.Set[str] = set()
-        self.schema_generator = SchemaGenerator(input_format="dict")
+        self.schema_generator = SchemaGenerator(input_format="dict", **schema_generator_kwargs)
         self.session_id = str(uuid.uuid4())
         self.item_cache = {}
 
@@ -48,7 +51,15 @@ class BigQueryPipeline:
                 "Could not decode BIGQUERY_SERVICE_ACCOUNT, disabling BigQuery middleware"
             )
         dataset = crawler.settings.get("BIGQUERY_DATASET")
-        return cls(service_account_info=gcp_service_account, dataset_id=dataset)
+        schema_generator_kwargs = {
+            v["name"]: crawler.settings.get(k, v["value"])
+            for k, v in cls.schema_generator_kwargs.items()
+        }
+        return cls(
+            service_account_info=gcp_service_account,
+            dataset_id=dataset,
+            **schema_generator_kwargs,
+        )
 
     def process_item(self, item: typing.Dict, spider: scrapy.Spider) -> typing.Dict:
         table_id, item = self.table_id(item, spider)
